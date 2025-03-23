@@ -245,7 +245,6 @@ class SVGVideoConverter:
 
             cmd = [
                 'ffmpeg', '-y',
-                '-hwaccel', 'videotoolbox',
                 '-threads', '0',
                 '-loop', '1', '-r', '30', '-i', png_path,
                 '-i', video_path,
