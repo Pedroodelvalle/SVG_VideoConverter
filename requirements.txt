@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+requests
+cairosvg
+pillow
+python-multipart
