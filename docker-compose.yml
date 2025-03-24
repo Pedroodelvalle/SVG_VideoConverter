@@ -7,10 +7,10 @@ services:
     ports:
       - "8000:8000"
     restart: always
-    environment:
-      - ENV=production
+    env_file:
+      - .env
     volumes:
-      - ./svg_to_video/generated_videos:/app/generated_videos
+      - ${GENERATED_VIDEOS_PATH}:/app/generated_videos
 
   svg_to_png:
     build: ./svg_to_png                 
@@ -18,8 +18,8 @@ services:
     ports:
       - "8001:8001"                    
     restart: always                   
-    environment:
-      - ENV=production                 
+    env_file:
+      - .env              
     volumes:
-      - ./svg_to_png/generated_images:/app/generated_images  
+      - ${GENERATED_IMAGES_PATH}:/app/generated_images
 
