@@ -4,3 +4,4 @@ requests
 cairosvg
 pillow
 python-multipart
+aiohttp

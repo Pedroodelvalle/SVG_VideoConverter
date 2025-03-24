@@ -1,68 +1,46 @@
 from converter import SVGVideoConverter
 import os
-import uuid
-import traceback
-from datetime import datetime
-import threading
 from pydantic import BaseModel
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
-
+from fastapi.responses import StreamingResponse
+import traceback
 
 app = FastAPI()
 
+BASE_OUTPUT = "/app/generated_videos"  # mesmo usado no converter
+
 class SVGInput(BaseModel):
-    svg_code: str
-
-def schedule_file_deletion(file_path: str, delay: int = 3600):
-    def delete_file():
-        try:
-            if os.path.exists(file_path):
-                os.remove(file_path)
-                print (f"Arquivo {file_path} removido após 1 hora.")
-        except Exception as e: 
-            print(f"Erro ao remover arquivo {file_path}: {str(e)}")
-
-    timer = threading.Timer(delay, delete_file)
-    timer.start()
+    svg_content: str
 
 @app.post("/generate-video/")
 async def generate_video(svg_input: SVGInput):
     try:
-        svg_code = svg_input.svg_code
-        if not svg_code:
-            raise ValueError("Campo 'svg' vazio ou ausente")
-        
-        filename= f"video_{uuid.uuid4().hex}.mp4"
-        output_path = os.path.abspath(os.path.join("generated_videos", filename))
-        os.makedirs("generated_videos", exist_ok=True)
+        if not svg_input.svg_content:
+            raise ValueError("Campo 'svg_content' está vazio ou ausente")
 
-        
-        converter = SVGVideoConverter(svg_code)
-        converter.embed_images_as_base64()
-        converter.create_video(output_path=output_path)
+        converter = SVGVideoConverter(svg_input.svg_content)
+        await converter.embed_images_as_base64()
+        output_path = await converter.create_video()
 
-        if not os.path.exists(output_path):
-            raise RuntimeError(f"Arquivo não foi gerado: {output_path}")
-        else:
-            print("Arquivo gerado com sucesso e presente em disco:", output_path)
+        if not os.path.isfile(output_path):
+            raise RuntimeError(f"Arquivo MP4 não gerado: {output_path}")
 
-        schedule_file_deletion(output_path, delay=3600)
+        filename = os.path.basename(output_path)
 
         return {
             "message": "Vídeo criado com sucesso",
-            "download_url": f"http://localhost:8000/videos/{filename}"
+            "video_url": f"/videos/{filename}"
         }
-    
+
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Erro ao gerar vídeo: {str(e)}")
-    
-@app.get("/videos/{filename}")
-async def get_video(filename: str):
-    file_path = os.path.join("generated_videos", filename)
 
-    if not os.path.exists(file_path):
+@app.get("/videos/{filename}")
+async def stream_video(filename: str):
+    file_path = os.path.join(BASE_OUTPUT, filename)
+
+    if not os.path.isfile(file_path):
         raise HTTPException(status_code=404, detail="Vídeo não encontrado.")
-    
-    return FileResponse(path=file_path, filename=filename, media_type="video/mp4")
+
+    return StreamingResponse(open(file_path, "rb"), media_type="video/mp4")

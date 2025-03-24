@@ -1,39 +1,34 @@
-# Etapa base
-FROM python:3.11-slim as base
+FROM python:3.11-slim
 
-# Configura variáveis de ambiente para otimização e não interatividade
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    DEBIAN_FRONTEND=noninteractive
+    DEBIAN_FRONTEND=noninteractive \
+    ENV=production
 
-# Atualiza e instala dependências do sistema sem pacotes recomendados
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     libcairo2 \
     libpango-1.0-0 \
     libpangocairo-1.0-0 \
     libgdk-pixbuf2.0-0 \
-    fonts-dejavu-core \
-    fonts-dejavu-extra \
     fonts-liberation \
-    fonts-noto \
-    fonts-freefont-ttf \
     && rm -rf /var/lib/apt/lists/*
 
-# Define o diretório de trabalho
+# Diretório da aplicação
 WORKDIR /app
 
-# Copia o arquivo de dependências separadamente para aproveitar o cache do Docker
+# Copia e instala dependências
 COPY requirements.txt .
-
-# Instala as dependências Python sem cache
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copia o restante do código para dentro da imagem
+# Copia o código da aplicação
 COPY . .
 
-# Documenta a porta que a aplicação usará
+# Garante que a pasta de vídeos exista com permissão
+RUN mkdir -p /app/generated_videos && chmod -R 777 /app/generated_videos
+
+# Exponha a porta correta usada pelo main.py
 EXPOSE 8000
 
-# Comando para iniciar a aplicação com uvicorn
+# Executa a aplicação FastAPI com uvicorn
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

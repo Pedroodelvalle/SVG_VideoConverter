@@ -6,13 +6,32 @@ import shlex
 import subprocess   
 import tempfile   
 import atexit
+from PIL import Image
+import io
 from urllib.parse import urlparse      
 from concurrent.futures import ThreadPoolExecutor
 from xml.etree import ElementTree as ET 
 import cairosvg
 import requests
 from PIL import Image, ImageDraw, ImageFilter
+import hashlib
+import time
+import asyncio
+import aiohttp
+from fastapi.responses import StreamingResponse
 
+
+
+
+_video_cache = {}
+MAX_CACHE_SIZE = 100
+TTL_SECONDS = 600  # 10 minutos
+CACHE_FOLDER = "/app/generated_videos"
+
+os.makedirs(CACHE_FOLDER, exist_ok=True)
+
+def _hash_svg(svg: str) -> str:
+    return hashlib.sha256(svg.encode("utf-8")).hexdigest()
 
 class SVGVideoConverter:
 
@@ -22,7 +41,29 @@ class SVGVideoConverter:
         self.temp_files = []
         atexit.register(self._cleanup_temp_files) 
 
-    def embed_images_as_base64(self):
+    def _normalize_svg_for_hashing(self, svg: str) -> str:
+        try:
+            namespaces = {
+                'svg': 'http://www.w3.org/2000/svg',
+                'xlink': 'http://www.w3.org/1999/xlink'
+            }
+
+            root = ET.fromstring(svg)
+            image_elements = root.findall('.//svg:image', namespaces)
+
+            for elem in image_elements:
+                if '{{{xlink}}}href'.format(**namespaces) in elem.attrib:
+                    elem.set('{{{xlink}}}href'.format(**namespaces), 'NORMALIZED')
+                elif 'href' in elem.attrib:
+                    elem.set('href', 'NORMALIZED')
+
+            return ET.tostring(root, encoding='utf-8', method='xml').decode('utf-8')
+
+        except Exception as e:
+            print(f"Erro ao normalizar SVG para hash: {str(e)}")
+            return svg  # fallback
+
+    async def embed_images_as_base64(self):
         try:
             namespaces = {
                 'svg': 'http://www.w3.org/2000/svg',
@@ -32,8 +73,9 @@ class SVGVideoConverter:
             root = ET.fromstring(self.svg_content)
 
             image_elements = root.findall('.//svg:image', namespaces)
-            with ThreadPoolExecutor(max_workers=2) as executor:
-                executor.map(lambda elem: self._replace_image_href_with_base64(elem,namespaces), image_elements)  
+            tasks = [self._replace_image_href_with_base64_async(elem, namespaces) for elem in image_elements]
+            await asyncio.gather(*tasks)
+
 
             self.processed_svg = ET.tostring(root, encoding='utf-8', method='xml').decode('utf-8')
             return self
@@ -41,15 +83,13 @@ class SVGVideoConverter:
         except Exception as e:
             raise RuntimeError(f"Erro ao processar SVG: {str(e)}")
         
-    def _replace_image_href_with_base64(self, elem, namespaces):
+    async def _replace_image_href_with_base64_async(self, elem, namespaces):
         url = self._get_href_attribute(elem, namespaces)
-
-        base64_data = None
         if url and url.startswith('http'):
             print(f"🔗 Convertendo imagem: {url}")
-            base64_data = self._url_to_base64(url)
+            base64_data = await self._url_to_base64_async(url)
 
-        if base64_data and base64_data.startswith("data:image/"):
+            if base64_data and base64_data.startswith("data:image/"):
                 if '{{{xlink}}}href'.format(**namespaces) in elem.attrib:
                     elem.set('{{{xlink}}}href'.format(**namespaces), base64_data)
                 else:
@@ -58,29 +98,27 @@ class SVGVideoConverter:
     def _get_href_attribute(self, elem, namespaces):
         return elem.get('{{{xlink}}}href'.format(**namespaces)) or elem.get('href')
     
-    def _url_to_base64(self, url: str) -> str:
+    async def _url_to_base64_async(self, url: str) -> str:
         try:
-            response = requests.get(
-                url,
-                headers={'User-Agent': 'Mozilla/5.0'},
-                timeout=10,
-                stream=True
-            )
-            response.raise_for_status()
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=10) as response:
+                    if response.status != 200:
+                        print(f"Erro ao baixar imagem: {response.status}")
+                        return None
+                    
+                    if int(response.headers.get('Content-Length', 0)) > 10 * 1024 * 1024:
+                        print(f"Imagem muito grande (>10MB): {url}")
+                        return None
 
-            if int(response.headers.get('Content-Length', 0)) > 10 * 1024 * 1024:
-                print(f"Imagem muito grande (>10MB): {url}")
-                return None
-            
-            content_type = response.headers.get('Content-Type', '')
-            mime_type = content_type.split(';')[0] if ';' in content_type else content_type
+                    content = await response.read()
+                    content_type = response.headers.get('Content-Type', '')
+                    mime_type = content_type.split(';')[0] if ';' in content_type else content_type
+                    if not mime_type.startswith('image/'):
+                        mime_type = mimetypes.guess_type(url)[0] or 'image/jpeg'
+                    
+                    encoded = base64.b64encode(content).decode('utf-8')
+                    return f"data:{mime_type};base64,{encoded}"
 
-            if not mime_type.startswith('image/'):
-                mime_type = mimetypes.guess_type(url) [0] or 'image/jpeg'
-
-            encoded = base64.b64encode(response.content).decode('utf-8')
-
-            return f"data:{mime_type};base64,{encoded}"
         except Exception as e:
             print(f"Erro ao baixar imagem {url}: {str(e)}")
             return None
@@ -112,10 +150,20 @@ class SVGVideoConverter:
                                
         return video_url       
 
-    def create_video(self, video_url: str = None, output_path: str = "output.mp4", scale: float = 1.5):
+    async def create_video(self, video_url: str = None, output_path: str = "output.mp4", scale: float = 1.2):
         
+        normalized_svg = self._normalize_svg_for_hashing(self.svg_content)
+        svg_hash = _hash_svg(normalized_svg)
+
         if not self.processed_svg:
-            raise RuntimeError("SVG não processado. Execute embed_images_as_base64() primeiro.")
+            await self.embed_images_as_base64()
+
+        output_path = os.path.join(CACHE_FOLDER, f"{svg_hash}.mp4")
+
+        cached = _video_cache.get(svg_hash)
+        if cached and time.time() - cached["timestamp"] <= TTL_SECONDS and os.path.isfile(cached["path"]):
+            print("♻️ Reutilizando vídeo em cache")
+            return cached["path"]
         
         try: 
             if not video_url:
@@ -124,10 +172,18 @@ class SVGVideoConverter:
             video_path = self._download_video(video_url)
 
             png_path = self._render_svg_to_png(scale=scale)
-
-            self._ffmpeg_processing(png_path, video_path, output_path)
+            await self._ffmpeg_processing(png_path, video_path, output_path)
 
             print (f"✅ Vídeo finalizado: {output_path}")
+
+            _video_cache[svg_hash] = {
+                "path": output_path,
+                "timestamp": time.time()
+            }
+
+            self._purge_expired_cache()
+
+            return output_path
 
         finally:
             self._cleanup_temp_files()
@@ -164,7 +220,7 @@ class SVGVideoConverter:
         except Exception as e:
             raise RuntimeError(f"Falha no Download do vídeo: {str(e)}")
         
-    def _render_svg_to_png(self, scale: float = 1.5) -> str:
+    def _render_svg_to_png(self, scale: float = 1.2) -> str:
         try:
             width, height = self._get_svg_dimensions()
 
@@ -220,7 +276,7 @@ class SVGVideoConverter:
         print("x:", x, "y:", y, "width:", width, "height:", height, "rx:", rx, "ry:", ry)
         return x, y, width, height, rx, ry
         
-    def _ffmpeg_processing(self, png_path: str, video_path: str, output_path: str):
+    async def _ffmpeg_processing(self, png_path: str, video_path: str, output_path: str):
         x, y, width, height, rx, ry = self._get_video_overlay_position()
 
         filter_complex = f"""
@@ -232,15 +288,15 @@ class SVGVideoConverter:
             'ffmpeg', '-y',
             '-threads', '1',
             '-loglevel', 'error',
-            '-loop', '1', '-r', '30', '-i', png_path,
+            '-loop', '1', '-r', '24', '-i', png_path,
             '-i', video_path,
             '-filter_complex', filter_complex,
             '-c:a', 'aac', '-b:a', '128k',
             '-c:v', 'libx264',
-            '-preset', 'veryfast',
+            '-preset', 'ultrafast',
             '-tune', 'fastdecode',
             '-movflags', '+faststart',
-            '-crf', '23',
+            '-crf', '28',
             '-f', 'mp4',
             output_path
         ]
@@ -248,20 +304,22 @@ class SVGVideoConverter:
         print("🧠 Comando FFmpeg sendo executado:")
         print(shlex.join(cmd))
     
-        try:
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=300)
-            print("✅ FFmpeg STDOUT:", result.stdout)
-            print("✅ FFmpeg STDERR:", result.stderr)
-        except subprocess.TimeoutExpired as e:
-            print("❌ FFmpeg atingiu o tempo limite de execução.")
-            raise RuntimeError("FFmpeg Timeout: o processo excedeu o tempo limite configurado.")
-        except subprocess.CalledProcessError as e:
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+
+        stdout, stderr = await process.communicate()
+
+        if process.returncode != 0:
             print("❌ FFmpeg falhou")
-            print("❌ Comando:", shlex.join(e.cmd))
-            print("❌ FFmpeg STDOUT:", e.stdout)
-            print("❌ FFmpeg STDERR:", e.stderr)
-            raise RuntimeError(f"Erro FFmpeg: {e.stderr}")            
-            
+            print("❌ STDOUT:", stdout.decode())
+            print("❌ STDERR:", stderr.decode())
+            raise RuntimeError(f"Erro FFmpeg: {stderr.decode()}")
+        else:
+            print("✅ FFmpeg completado com sucesso.")
+            print("✅ STDOUT:", stdout.decode())
         
     def _cleanup_temp_files(self):
             for path in self.temp_files: 
@@ -270,3 +328,23 @@ class SVGVideoConverter:
                         os.remove(path)
                 except Exception as e:
                     print(f"⚠️ Erro ao limpar arquivo temporário '{path}':{str(e)}")
+
+    def _purge_expired_cache(self):
+        now = time.time()
+        expired = [k for k, v in _video_cache.items() if now - v["timestamp"] > TTL_SECONDS]
+
+        for key in expired:
+            try:
+                os.remove(_video_cache[key]["path"])
+            except Exception as e:
+                print(f"⚠️ Erro ao remover vídeo expirado '{key}': {str(e)}")
+            _video_cache.pop(key)
+
+        # Limite de tamanho
+        while len(_video_cache) > MAX_CACHE_SIZE:
+            oldest = next(iter(_video_cache))
+            try:
+                os.remove(_video_cache[oldest]["path"])
+            except:
+                pass
+            _video_cache.pop(oldest)
