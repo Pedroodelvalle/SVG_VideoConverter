@@ -33,6 +33,7 @@ docker-compose up --build
 Acesse:
 http://localhost:8000/docs → SVG para Vídeo
 http://localhost:8001/docs → SVG para PNG
+```
 
 ☁️ Deploy em Produção
 A aplicação roda em uma instância EC2 (Amazon Web Services). O deploy é feito com git pull e docker-compose up -d.
@@ -44,9 +45,6 @@ Conty Developers
 ✨ Observações Finais
 Toda nova API deve seguir o padrão de:
 
-bash
-Copiar
-Editar
 /nome_api/
 ├── main.py
 ├── Dockerfile
