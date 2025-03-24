@@ -1,4 +1,3 @@
-#bibliotecas nativas
 import base64   
 import mimetypes   
 import os   
@@ -10,13 +9,11 @@ import atexit
 from urllib.parse import urlparse      
 from concurrent.futures import ThreadPoolExecutor
 from xml.etree import ElementTree as ET 
-#bibliotecas externas
 import cairosvg
 import requests
 from PIL import Image, ImageDraw, ImageFilter
 
 
-#Definição da classe: 
 class SVGVideoConverter:
 
     def __init__(self,svg_content: str):

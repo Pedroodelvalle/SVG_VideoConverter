@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  svg_to_video:
+    build: ./svg_to_video
+    container_name: svg_to_video
+    ports:
+      - "8000:8000"
+    restart: always
+    environment:
+      - ENV=production
+    volumes:
+      - ./svg_to_video/generated_videos:/app/generated_videos
+
+  svg_to_png:
+    build: ./svg_to_png                 
+    container_name: svg_to_png       
+    ports:
+      - "8001:8001"                    
+    restart: always                   
+    environment:
+      - ENV=production                 
+    volumes:
+      - ./svg_to_png/generated_images:/app/generated_images  
+

@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+*.sqlite3
+.env
+.env.*
+.DS_Store
+*.mp4
+*.png
+*.svg
+generated_videos/
+generated_images/
