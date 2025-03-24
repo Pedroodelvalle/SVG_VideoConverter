@@ -1,34 +1,34 @@
-# Etapa base
 FROM python:3.11-slim as base
 
-# Configura variáveis de ambiente para otimização e não interatividade
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    DEBIAN_FRONTEND=noninteractive
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
 
-# Atualiza e instala dependências do sistema sem pacotes recomendados
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     libcairo2 \
     libpango-1.0-0 \
     libpangocairo-1.0-0 \
     libgdk-pixbuf2.0-0 \
+    fonts-dejavu-core \
+    fonts-dejavu-extra \
+    fonts-liberation \
+    fonts-noto \
+    fonts-freefont-ttf \
+    ttf-mscorefonts-installer \
+    && echo "ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true" | debconf-set-selections \
     && rm -rf /var/lib/apt/lists/*
 
-# Define o diretório de trabalho
+# Atualiza o cache de fontes
+RUN fc-cache -fv
+
 WORKDIR /app
 
-# Copia o arquivo de dependências separadamente para aproveitar o cache do Docker
-COPY requirements.txt .
-
-# Instala as dependências Python sem cache
+COPY requirements.txt /app/
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copia o restante do código para dentro da imagem
-COPY . .
+COPY . /app
 
-# Documenta a porta que a aplicação usará
 EXPOSE 8000
 
-# Comando para iniciar a aplicação com uvicorn
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
