@@ -1,6 +1,12 @@
+# Etapa base
 FROM python:3.11-slim as base
 
-# Instalar dependências do sistema com --no-install-recommends e limpeza de cache
+# Configura variáveis de ambiente para otimização e não interatividade
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    DEBIAN_FRONTEND=noninteractive
+
+# Atualiza e instala dependências do sistema sem pacotes recomendados
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     libcairo2 \
@@ -9,13 +15,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgdk-pixbuf2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
+# Define o diretório de trabalho
 WORKDIR /app
 
-# Copiar requirements.txt e instalar dependências (aproveitando o cache do Docker)
-COPY requirements.txt /app/
+# Copia o arquivo de dependências separadamente para aproveitar o cache do Docker
+COPY requirements.txt .
+
+# Instala as dependências Python sem cache
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copiar o restante do código
-COPY . /app
+# Copia o restante do código para dentro da imagem
+COPY . .
 
+# Documenta a porta que a aplicação usará
+EXPOSE 8000
+
+# Comando para iniciar a aplicação com uvicorn
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
