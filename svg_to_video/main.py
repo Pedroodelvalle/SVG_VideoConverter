@@ -1,13 +1,13 @@
-from converter import SVGVideoConverter
+from converter import SVGVideoConverter, upload_to_supabase
 import os
 from pydantic import BaseModel
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import StreamingResponse
 import traceback
+from dotenv import load_dotenv
+
+load_dotenv()
 
 app = FastAPI()
-
-BASE_OUTPUT = "/app/generated_videos"  # mesmo usado no converter
 
 class SVGInput(BaseModel):
     svg_content: str
@@ -27,20 +27,14 @@ async def generate_video(svg_input: SVGInput):
 
         filename = os.path.basename(output_path)
 
+        # ✅ Upload para Supabase
+        public_url = upload_to_supabase(output_path, filename)
+
         return {
             "message": "Vídeo criado com sucesso",
-            "video_url": f"/videos/{filename}"
+            "video_url": public_url
         }
 
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Erro ao gerar vídeo: {str(e)}")
-
-@app.get("/videos/{filename}")
-async def stream_video(filename: str):
-    file_path = os.path.join(BASE_OUTPUT, filename)
-
-    if not os.path.isfile(file_path):
-        raise HTTPException(status_code=404, detail="Vídeo não encontrado.")
-
-    return StreamingResponse(open(file_path, "rb"), media_type="video/mp4")

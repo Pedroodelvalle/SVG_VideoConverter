@@ -5,3 +5,5 @@ cairosvg
 pillow
 python-multipart
 aiohttp
+supabase
+python-dotenv

@@ -11,6 +11,8 @@ services:
       - ENV=production
     volumes:
       - generated_videos:/app/generated_videos  # volume gerenciado, rápido e seguro
+    env_file:
+      - .env
 
   svg_to_png:
     build: ./svg_to_png

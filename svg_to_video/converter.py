@@ -18,10 +18,25 @@ import hashlib
 import time
 import asyncio
 import aiohttp
-from fastapi.responses import StreamingResponse
+from supabase import create_client
+from dotenv import load_dotenv
+load_dotenv()
 
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+SUPABASE_BUCKET = os.getenv("SUPABASE_BUCKET", "videos")
 
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+def upload_to_supabase(file_path: str, filename: str) -> str:
+    with open(file_path, "rb") as f:
+        supabase.storage.from_(SUPABASE_BUCKET).upload(
+            path=filename,
+            file=f,
+            file_options={"content-type": "video/mp4"}
+        )
+    public_url = supabase.storage.from_(SUPABASE_BUCKET).get_public_url(filename)
+    return public_url
 
 _video_cache = {}
 MAX_CACHE_SIZE = 100
@@ -187,6 +202,8 @@ class SVGVideoConverter:
 
         finally:
             self._cleanup_temp_files()
+
+
                                 
     def _download_video(self, url: str) -> str:
         try: 
