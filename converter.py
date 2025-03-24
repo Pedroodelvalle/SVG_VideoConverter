@@ -3,6 +3,7 @@ import base64
 import mimetypes   
 import os   
 import re  
+import shlex
 import subprocess   
 import tempfile   
 import atexit
@@ -148,12 +149,17 @@ class SVGVideoConverter:
             if not content_type.startswith('video/'):
                 raise RuntimeError(f"Tipo de conteúdo inválido: {content_type}")
             
+            content_length = int(response.headers.get('Content-Length', 0))
+            if content_length > 100 * 1024 * 1024:   #100MB
+                raise RuntimeError(f"Vídeo muito grande: {content_length / (1024 * 1024):.2f}MB")
+            
             temp_video = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
             self.temp_files.append(temp_video.name)
 
-            for chunk in response.iter_content(chunk_size=5 * 1024 * 1024):
-                if chunk:
-                    temp_video.write(chunk)
+            with open(temp_video.name, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=5 * 1024 * 1024):
+                    if chunk:
+                        temp_video.write(chunk)
 
             temp_video.close()
             return temp_video.name
@@ -217,84 +223,44 @@ class SVGVideoConverter:
         print("x:", x, "y:", y, "width:", width, "height:", height, "rx:", rx, "ry:", ry)
         return x, y, width, height, rx, ry
         
-    def _generate_rounded_mask(self, width, height, rx, ry) -> str:
-        mask_path = tempfile.NamedTemporaryFile(delete=False, suffix='.png').name
-
-        base = Image.new('L', (width, height), 0)
-        draw = ImageDraw.Draw(base)
-
-        draw.rounded_rectangle(
-            [(0, 0), (width, height)],
-            radius=min(rx, ry),
-            fill=255
-        )
-
-        blurred = base.filter(ImageFilter.GaussianBlur(radius=5))
-        blurred.save(mask_path, "PNG")
-        return mask_path
-    
     def _ffmpeg_processing(self, png_path: str, video_path: str, output_path: str):
         x, y, width, height, rx, ry = self._get_video_overlay_position()
-        use_mask = (rx > 0 or ry > 0)
 
-        if use_mask:
-            mask_path = self._generate_rounded_mask(width, height, rx, ry)
-
-            filter_complex = f"""
-            [1:v]scale={width}:{height}:force_original_aspect_ratio=increase, crop={width}:{height},format=rgba[vid];
-            [2:v]format=gray,scale={width}:{height}[mask];
-            [vid][mask]alphamerge[vidmasked];
-            [0:v][vidmasked]overlay={x}:{y}:shortest=1
-        """.replace("\n", "").strip()
-
-            cmd = [
-                'ffmpeg', '-y',
-                '-threads', '1',
-                '-loop', '1', '-r', '30', '-i', png_path,
-                '-i', video_path,
-                '-i', mask_path,
-                '-filter_complex', filter_complex,
-                '-c:a', 'aac', '-b:a', '128k',
-                '-c:v', 'libx264',
-                '-preset', 'veryfast',
-                '-tune', 'fastdecode',
-                '-movflags', '+faststart',
-                '-crf', '23',
-                '-f', 'mp4',
-                output_path
-            ]
-        else:
-            filter_complex = f"""
-            [1:v]scale={width}:{height}:force_original_aspect_ratio=increase, crop={width}:{height}[vid];
-            [0:v][vid]overlay={x}:{y}:shortest=1
-        """.replace("\n", "").strip()
+        filter_complex = f"""
+        [1:v]scale={width}:{height}:force_original_aspect_ratio=increase, crop={width}:{height}[vid];
+        [0:v][vid]overlay={x}:{y}:shortest=1
+    """.replace("\n", "").strip()
             
-            cmd = [
-                'ffmpeg', '-y',
-                '-threads', '0',
-                '-loop', '1', '-r', '30', '-i', png_path,
-                '-i', video_path,
-                '-filter_complex', filter_complex,
-                '-c:a', 'aac', '-b:a', '128k',
-                '-c:v', 'libx264',
-                '-preset', 'veryfast',
-                '-tune', 'fastdecode',
-                '-movflags', '+faststart',
-                '-crf', '23',
-                '-f', 'mp4',
-               output_path
-            ]
+        cmd = [
+            'ffmpeg', '-y',
+            '-threads', '1',
+            'loglevel', 'error',
+            '-loop', '1', '-r', '30', '-i', png_path,
+            '-i', video_path,
+            '-filter_complex', filter_complex,
+            '-c:a', 'aac', '-b:a', '128k',
+            '-c:v', 'libx264',
+            '-preset', 'veryfast',
+            '-tune', 'fastdecode',
+            '-movflags', '+faststart',
+            '-crf', '23',
+            '-f', 'mp4',
+            output_path
+        ]
 
         print("🧠 Comando FFmpeg sendo executado:")
-        print(" ".join(cmd))
+        print(shlex.join(cmd))
     
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=300)
             print("✅ FFmpeg STDOUT:", result.stdout)
             print("✅ FFmpeg STDERR:", result.stderr)
+        except subprocess.TimeoutExpired as e:
+            print("❌ FFmpeg atingiu o tempo limite de execução.")
+            raise RuntimeError("FFmpeg Timeout: o processo excedeu o tempo limite configurado.")
         except subprocess.CalledProcessError as e:
             print("❌ FFmpeg falhou")
-            print("❌ Comando:", " ".join(e.cmd))
+            print("❌ Comando:", shlex.join(e.cmd))
             print("❌ FFmpeg STDOUT:", e.stdout)
             print("❌ FFmpeg STDERR:", e.stderr)
             raise RuntimeError(f"Erro FFmpeg: {e.stderr}")            
