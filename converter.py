@@ -1,3 +1,4 @@
+#bibliotecas nativas
 import base64   
 import mimetypes   
 import os   
@@ -8,12 +9,15 @@ import atexit
 from urllib.parse import urlparse      
 from concurrent.futures import ThreadPoolExecutor
 from xml.etree import ElementTree as ET 
-
+#bibliotecas externas
 import cairosvg
 import requests
 from PIL import Image, ImageDraw, ImageFilter
 
+
+#Definição da classe: 
 class SVGVideoConverter:
+
     def __init__(self,svg_content: str):
         self.svg_content = svg_content
         self.processed_svg = None
@@ -30,7 +34,7 @@ class SVGVideoConverter:
             root = ET.fromstring(self.svg_content)
 
             image_elements = root.findall('.//svg:image', namespaces)
-            with ThreadPoolExecutor() as executor:
+            with ThreadPoolExecutor(max_workers=2) as executor:
                 executor.map(lambda elem: self._replace_image_href_with_base64(elem,namespaces), image_elements)  
 
             self.processed_svg = ET.tostring(root, encoding='utf-8', method='xml').decode('utf-8')
@@ -110,7 +114,7 @@ class SVGVideoConverter:
                                
         return video_url       
 
-    def create_video(self, video_url: str = None, output_path: str = "output.mp4"):
+    def create_video(self, video_url: str = None, output_path: str = "output.mp4", scale: float = 1.5):
         
         if not self.processed_svg:
             raise RuntimeError("SVG não processado. Execute embed_images_as_base64() primeiro.")
@@ -121,7 +125,7 @@ class SVGVideoConverter:
 
             video_path = self._download_video(video_url)
 
-            png_path = self._render_svg_to_png()
+            png_path = self._render_svg_to_png(scale=scale)
 
             self._ffmpeg_processing(png_path, video_path, output_path)
 
@@ -157,7 +161,7 @@ class SVGVideoConverter:
         except Exception as e:
             raise RuntimeError(f"Falha no Download do vídeo: {str(e)}")
         
-    def _render_svg_to_png(self, scale: float = 2.0) -> str:
+    def _render_svg_to_png(self, scale: float = 1.5) -> str:
         try:
             width, height = self._get_svg_dimensions()
 
@@ -192,7 +196,7 @@ class SVGVideoConverter:
             height = int(float(viewbox[3].replace(',', '.')))
             return width, height 
         
-    def _get_video_overlay_position(self, scale: float = 2.0) -> tuple:
+    def _get_video_overlay_position(self, scale: float = 1.5) -> tuple:
         root = ET.fromstring(self.processed_svg)
         video_rect = root.find(".//*[@id='video-area']")
 
@@ -245,7 +249,7 @@ class SVGVideoConverter:
 
             cmd = [
                 'ffmpeg', '-y',
-                '-threads', '0',
+                '-threads', '1',
                 '-loop', '1', '-r', '30', '-i', png_path,
                 '-i', video_path,
                 '-i', mask_path,
