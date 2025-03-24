@@ -50,10 +50,12 @@ Conty Developers
 ## ✨ Observações Finais
 Toda nova API deve seguir o padrão de:
 
+```bash
 /nome_api/
 ├── main.py
 ├── Dockerfile
 ├── requirements.txt
 └── outros arquivos
+```
 E ser declarada no docker-compose.yml para deploy automatizado.
 
