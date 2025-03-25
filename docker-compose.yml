@@ -5,12 +5,12 @@ services:
     build: ./svg_to_video
     container_name: svg_to_video
     ports:
-      - "8000:8000"  # API de conversão para vídeo (MP4)
-    restart: unless-stopped  # reinicia a menos que você pare manualmente
+      - "8000:8000"  
+    restart: unless-stopped  
     environment:
       - ENV=production
     volumes:
-      - generated_videos:/app/generated_videos  # volume gerenciado, rápido e seguro
+      - generated_videos:/app/generated_videos  
     env_file:
       - .env
 
@@ -18,15 +18,17 @@ services:
     build: ./svg_to_png
     container_name: svg_to_png
     ports:
-      - "8001:8001"  # API de conversão para PNG
+      - "8001:8001"  
     restart: unless-stopped
     environment:
       - ENV=production
     volumes:
       - generated_images:/app/generated_images
+    env_file:
+      - .env
 
 volumes:
   generated_videos:
-    driver: local  # alta performance no EC2, sem bind mount
+    driver: local 
   generated_images:
     driver: local

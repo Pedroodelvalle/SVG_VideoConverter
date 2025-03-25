@@ -2,3 +2,5 @@ fastapi
 uvicorn
 requests
 cairosvg
+supabase
+python-dotenv

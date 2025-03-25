@@ -11,7 +11,7 @@ class SVGInput(BaseModel):
     svg_content: str
 
 
-@app.post("/generate-png")
+@app.post("/generate-png", summary="Gera PNG a partir de SVG e retorna a URL pública")
 def generate_png(data: SVGInput) -> List[Dict[str, str]]:
     try:
         output_folder = BASE_OUTPUT
@@ -25,13 +25,7 @@ def generate_png(data: SVGInput) -> List[Dict[str, str]]:
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/images/{filename}")
-def get_png(filename: str):
-    file_path = os.path.join(BASE_OUTPUT, filename)
-
-    if not os.path.isfile(file_path):
-        raise HTTPException(status_code=404, detail="Imagem não encontrada")
-
-    return FileResponse(file_path, media_type="image/png")
+    
+@app.get("/status")
+def status():
+    return {"status": "ok"}

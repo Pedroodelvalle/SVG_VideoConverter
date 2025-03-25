@@ -9,6 +9,26 @@ from io import BytesIO
 from typing import List, Dict, Tuple
 import hashlib
 from functools import lru_cache
+from supabase import create_client
+from dotenv import load_dotenv
+
+load_dotenv()
+
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+SUPABASE_BUCKET = os.getenv("SUPABASE_IMAGES_BUCKET", "images")
+
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+def upload_png_to_supabase(file_path: str, filename: str) -> str:
+    with open(file_path, "rb") as f:
+        supabase.storage.from_(SUPABASE_BUCKET).upload(
+            path=filename,
+            file=f,
+            file_options={"content-type": "image/png"}
+        )
+    public_url = supabase.storage.from_(SUPABASE_BUCKET).get_public_url(filename)
+    return public_url
 
 _svg_png_cache = {}
 MAX_CACHE_SIZE = 100
@@ -39,14 +59,14 @@ def convert_svg_images_to_base64_and_save(svg_content: str, output_folder: str) 
             else:
                 png_path = _save_svg_and_convert(processed_svg, svg_hash, output_folder)
                 _svg_png_cache[svg_hash] = {
-                    "path": png_path,
+                    "url": png_path,  
                     "timestamp": time.time()
                 }
 
                 if len(_svg_png_cache) > MAX_CACHE_SIZE:
                     _svg_png_cache.pop(next(iter(_svg_png_cache)))
 
-            processed_files.append({"svg": processed_svg, "png": png_path})
+            processed_files.append({"svg": processed_svg, "png": _svg_png_cache[svg_hash]["url"]})
         except Exception as e:
             print(f"[ERRO] Falha no SVG #{idx+1}: {str(e)}")
             continue
@@ -102,7 +122,10 @@ def _save_svg_and_convert(processed_svg: str, svg_hash: str, output_folder: str)
         unsafe=True
     )
 
-    return png_path
+    png_path = f"generated_images/{svg_hash}/converted_1.png"
+    png_url = upload_png_to_supabase(png_path, f"{svg_hash}.png")
+
+    return png_url
 
 
 
