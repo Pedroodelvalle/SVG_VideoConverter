@@ -16,7 +16,7 @@ load_dotenv()
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-SUPABASE_BUCKET = os.getenv("SUPABASE_IMAGES_BUCKET", "images")
+SUPABASE_BUCKET = os.getenv("SUPABASE_IMAGES_BUCKET", "posts_images")
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -158,7 +158,7 @@ def purge_expired_cache(ttl=600):
 
     for key in expired_keys:
         try:
-            os.remove(_svg_png_cache[key]["path"])
+            pass
         except Exception as e:
             print(f"[AVISO] Falha ao remover PNG expirado: {e}")
         _svg_png_cache.pop(key)
